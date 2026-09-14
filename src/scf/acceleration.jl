@@ -112,8 +112,8 @@ the occupied states are mixed after gauge fixing (gf): ψ_gf = |ψ_occ><ψ_occ|�
 [^HLY17]: Hu, Lin, Yang. Journal of chemical theory and computation **13.11**, 5458-5467 (2017) DOI [10.1021/acs.jctc.7b00892](https://doi.org/10.1021/acs.jctc.7b00892) 
 """
  
-init_specifics(::PcdiisType; reference=nothing, kwargs...) = 
-    Dict{Symbol,Any}(:reference => reference)
+init_specifics(::PcdiisType; reference=nothing, conv_log=nothing, kwargs...) = 
+    Dict{Symbol,Any}(:reference => reference, :conv_log => conv_log)
 
 function accelerate(acc::Acceleration{PcdiisType}, xₙ, fxₙ, info)
     if acc.memory.depth == 0 || acc.memory.errorfactor ≤ 1 || acc.memory.maxcond ≤ 1 || isnothing(xₙ.ψ) || isnothing(xₙ.occupation)
@@ -132,6 +132,8 @@ function accelerate(acc::Acceleration{PcdiisType}, xₙ, fxₙ, info)
 	k_errors::Vector = []
 	k_states::Vector = []
 
+    errcon = 0
+
 	for ik in 1:length(fxₙ.ψ)
         #compute gauge-fixed states (iterate)
 		push!(k_states, fxₙ.ψ[ik][:,mask] * (fxₙ.ψ[ik][:,mask]' * ψ_ref[ik][:,mask_ref]))
@@ -140,8 +142,12 @@ function accelerate(acc::Acceleration{PcdiisType}, xₙ, fxₙ, info)
 		ψ_ref_H_ψ_old = ψ_ref[ik]' * (info.ham.blocks[ik] * xₙ.ψ[ik][:,mask])
 		ψ_old_ψ_ref   = xₙ.ψ[ik][:,mask]' * ψ_ref[ik]
 		C = ψ_ref_H_ψ_old * ψ_old_ψ_ref - ψ_old_ψ_ref' * ψ_ref_H_ψ_old'
+        errcon += tr(C'*C)
 		push!(k_errors, C)
 	end
+
+    log = acc.specifics[:conv_log]
+    isnothing(log) || push!(log,real(errcon))
 
     #Fill history and delete iterates with error > min(errors) * errorfactor
     push!(acc.memory, k_states, k_errors, sum([norm(C)^2 for C in k_errors]))
